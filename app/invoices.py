@@ -28,5 +28,5 @@ def issue_random_invoices() -> list:
     count = random.randint(MIN_INVOICES, MAX_INVOICES)
     invoices = starkbank.invoice.create([build_random_invoice() for _ in range(count)])
     for invoice in invoices:
-        logger.info("issued invoice id=%s amount=%s to=%s", invoice.id, invoice.amount, invoice.name)
+        logger.info("issued invoice id=%s amount=%s", invoice.id, invoice.amount)
     return invoices

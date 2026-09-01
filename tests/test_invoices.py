@@ -24,3 +24,14 @@ def test_issue_random_invoices_batch_size(mock_create):
         invoices = issue_random_invoices()
         assert MIN_INVOICES <= len(invoices) <= MAX_INVOICES
     assert mock_create.call_count == 50
+
+
+@patch("app.invoices.starkbank.invoice.create", side_effect=lambda batch: batch)
+def test_issue_logging_has_no_pii(mock_create, caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="app.invoices"):
+        invoices = issue_random_invoices()
+    for invoice in invoices:
+        assert invoice.name not in caplog.text
+        assert invoice.tax_id not in caplog.text
