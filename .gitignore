@@ -6,3 +6,6 @@ __pycache__/
 data/
 .pytest_cache/
 *.egg-info/
+
+# internal planning docs — never publish
+docs/plans/
