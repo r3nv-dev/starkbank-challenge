@@ -5,7 +5,7 @@ import starkbank
 from fastapi import FastAPI, HTTPException, Request
 
 from app.config import load_settings, setup_starkbank
-from app.events import EventStore
+from app.events import create_event_store
 from app.handlers import handle_event
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 settings = load_settings()
 setup_starkbank(settings)
-store = EventStore(settings.event_db_path)
+store = create_event_store(settings.database_url)
 
 app = FastAPI(title="starkbank-challenge webhook")
 

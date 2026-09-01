@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.events import EventStore
+from app.events import InMemoryEventStore
 from app.handlers import handle_event
 
 
@@ -15,8 +15,8 @@ def make_event(id="evt-1", subscription="invoice", log_type="credited"):
 
 
 @pytest.fixture
-def store(tmp_path):
-    return EventStore(str(tmp_path / "events.db"))
+def store():
+    return InMemoryEventStore()
 
 
 @patch("app.handlers.transfer_invoice_credit")

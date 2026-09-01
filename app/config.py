@@ -14,7 +14,7 @@ class Settings:
     environment: str
     project_id: str
     private_key_path: str
-    event_db_path: str
+    database_url: str | None = None
 
 
 def load_settings() -> Settings:
@@ -22,7 +22,7 @@ def load_settings() -> Settings:
         environment=os.environ.get("STARKBANK_ENVIRONMENT", "sandbox"),
         project_id=os.environ["STARKBANK_PROJECT_ID"],
         private_key_path=os.environ.get("STARKBANK_PRIVATE_KEY_PATH", "private-key.pem"),
-        event_db_path=os.environ.get("EVENT_DB_PATH", "data/events.db"),
+        database_url=os.environ.get("DATABASE_URL"),
     )
 
 

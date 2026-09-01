@@ -13,4 +13,4 @@ _key_path.write_text(_private_key)
 
 os.environ.setdefault("STARKBANK_PROJECT_ID", "1234567890123456")
 os.environ.setdefault("STARKBANK_PRIVATE_KEY_PATH", str(_key_path))
-os.environ.setdefault("EVENT_DB_PATH", str(_tmp / "events.db"))
+# DATABASE_URL intentionally unset: app modules fall back to the in-memory store.
