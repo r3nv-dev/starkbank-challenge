@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from app.config import load_settings, setup_starkbank
 from app.events import EventStore
-from app.transfers import transfer_invoice_credit
+from app.handlers import handle_event
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -34,14 +34,4 @@ async def webhook(request: Request):
         logger.warning("rejected event with invalid signature")
         raise HTTPException(status_code=400, detail="invalid signature")
 
-    if not store.mark_processed(event.id):
-        logger.info("skipping duplicate event id=%s", event.id)
-        return {"status": "duplicate"}
-
-    if event.subscription == "invoice" and event.log.type == "credited":
-        transfer_invoice_credit(event.log.invoice)
-    else:
-        logger.info("ignoring event id=%s subscription=%s type=%s",
-                    event.id, event.subscription, getattr(event.log, "type", None))
-
-    return {"status": "ok"}
+    return {"status": handle_event(event, store)}

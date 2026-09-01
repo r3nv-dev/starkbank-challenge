@@ -22,7 +22,7 @@ def test_health():
     assert client.get("/health").json() == {"status": "ok"}
 
 
-@patch("app.webhook_app.transfer_invoice_credit")
+@patch("app.handlers.transfer_invoice_credit")
 @patch("app.webhook_app.starkbank.event.parse")
 def test_credited_invoice_triggers_transfer(mock_parse, mock_transfer):
     mock_parse.return_value = make_event(id="evt-credited")
@@ -31,7 +31,7 @@ def test_credited_invoice_triggers_transfer(mock_parse, mock_transfer):
     mock_transfer.assert_called_once_with(mock_parse.return_value.log.invoice)
 
 
-@patch("app.webhook_app.transfer_invoice_credit")
+@patch("app.handlers.transfer_invoice_credit")
 @patch("app.webhook_app.starkbank.event.parse")
 def test_non_credited_event_is_ignored(mock_parse, mock_transfer):
     mock_parse.return_value = make_event(id="evt-created", log_type="created")
@@ -40,7 +40,7 @@ def test_non_credited_event_is_ignored(mock_parse, mock_transfer):
     mock_transfer.assert_not_called()
 
 
-@patch("app.webhook_app.transfer_invoice_credit")
+@patch("app.handlers.transfer_invoice_credit")
 @patch("app.webhook_app.starkbank.event.parse")
 def test_duplicate_event_is_not_processed_twice(mock_parse, mock_transfer):
     mock_parse.return_value = make_event(id="evt-dup")

@@ -26,3 +26,9 @@ class EventStore:
             return True
         except sqlite3.IntegrityError:
             return False
+
+    def is_processed(self, event_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM processed_events WHERE id = ?", (event_id,)
+        ).fetchone()
+        return row is not None
