@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.transfers import DESTINATION, transfer_invoice_credit
+import pytest
+from starkbank.error import InputErrors
+
+from app.transfers import DESTINATION, net_amount, transfer_invoice_credit
 
 
 def make_invoice(amount=10_000, fee=118, id="123"):
@@ -40,3 +43,31 @@ def test_missing_fee_treated_as_zero(mock_create):
     invoice = SimpleNamespace(amount=5_000, id="1", fee=None)
     transfer = transfer_invoice_credit(invoice)
     assert transfer.amount == 5_000
+
+
+def test_net_amount_deducts_fee():
+    assert net_amount(make_invoice(amount=10_000, fee=118)) == 9_882
+
+
+def test_net_amount_without_fee_field():
+    assert net_amount(SimpleNamespace(amount=5_000, id="1")) == 5_000
+
+
+def make_input_errors(code, message="msg"):
+    try:
+        raise InputErrors([{"code": code, "message": message}])
+    except InputErrors as error:
+        return error
+
+
+@patch("app.transfers.starkbank.transfer.create")
+def test_duplicate_external_id_is_treated_as_already_paid(mock_create):
+    mock_create.side_effect = make_input_errors("invalidExternalId", "external_id already used")
+    assert transfer_invoice_credit(make_invoice(id="dup")) is None
+
+
+@patch("app.transfers.starkbank.transfer.create")
+def test_other_api_errors_propagate(mock_create):
+    mock_create.side_effect = make_input_errors("invalidBalance", "insufficient balance")
+    with pytest.raises(InputErrors):
+        transfer_invoice_credit(make_invoice())

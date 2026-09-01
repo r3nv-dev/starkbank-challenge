@@ -2,6 +2,7 @@
 import logging
 
 import starkbank
+from starkbank.error import InputErrors
 
 logger = logging.getLogger(__name__)
 
@@ -15,24 +16,46 @@ DESTINATION = {
 }
 
 
+def net_amount(invoice) -> int:
+    """Received amount minus the fee Stark Bank charged, in cents."""
+    return invoice.amount - (getattr(invoice, "fee", 0) or 0)
+
+
+def _looks_like_duplicate_external_id(error: InputErrors) -> bool:
+    # The exact error code for a duplicated external_id is not publicly
+    # documented, so match defensively; confirmed against sandbox behavior.
+    for item in getattr(error, "errors", []):
+        code = str(getattr(item, "code", item)).lower()
+        message = str(getattr(item, "message", "")).lower()
+        if "external" in code or "external" in message:
+            return True
+    return False
+
+
 def transfer_invoice_credit(invoice) -> starkbank.Transfer | None:
     """Send the invoice's net amount to the destination account.
 
     Uses the invoice id as external_id so the API rejects accidental
     duplicates even if the same webhook event is processed twice.
     """
-    net_amount = invoice.amount - (getattr(invoice, "fee", 0) or 0)
-    if net_amount <= 0:
+    amount = net_amount(invoice)
+    if amount <= 0:
         logger.warning("invoice %s has no net amount to transfer (fee >= amount)", invoice.id)
         return None
 
-    (transfer,) = starkbank.transfer.create([
-        starkbank.Transfer(
-            amount=net_amount,
-            external_id=f"invoice-{invoice.id}",
-            tags=["challenge"],
-            **DESTINATION,
-        )
-    ])
-    logger.info("created transfer id=%s amount=%s for invoice=%s", transfer.id, net_amount, invoice.id)
+    try:
+        (transfer,) = starkbank.transfer.create([
+            starkbank.Transfer(
+                amount=amount,
+                external_id=f"invoice-{invoice.id}",
+                tags=["challenge"],
+                **DESTINATION,
+            )
+        ])
+    except InputErrors as error:
+        if _looks_like_duplicate_external_id(error):
+            logger.info("transfer already exists for invoice %s; treating as processed", invoice.id)
+            return None
+        raise
+    logger.info("created transfer id=%s amount=%s for invoice=%s", transfer.id, amount, invoice.id)
     return transfer
