@@ -15,6 +15,8 @@ class Settings:
     project_id: str
     private_key_path: str
     database_url: str | None = None
+    issue_token: str | None = None
+    issue_until: str | None = None  # ISO-8601; naive datetimes are read as UTC
 
 
 def load_settings() -> Settings:
@@ -23,6 +25,8 @@ def load_settings() -> Settings:
         project_id=os.environ["STARKBANK_PROJECT_ID"],
         private_key_path=os.environ.get("STARKBANK_PRIVATE_KEY_PATH", "private-key.pem"),
         database_url=os.environ.get("DATABASE_URL"),
+        issue_token=os.environ.get("ISSUE_TOKEN"),
+        issue_until=os.environ.get("ISSUE_UNTIL"),
     )
 
 

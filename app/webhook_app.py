@@ -1,12 +1,15 @@
-"""Webhook receiver: verifies event signatures and reacts to credited invoices."""
+"""HTTP edge: webhook receiver and the scheduler-facing issue endpoint."""
 import logging
+import secrets
+from datetime import datetime, timezone
 
 import starkbank
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 
 from app.config import load_settings, setup_starkbank
 from app.events import create_event_store
 from app.handlers import handle_event
+from app.invoices import issue_random_invoices
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -35,3 +38,21 @@ async def webhook(request: Request):
         raise HTTPException(status_code=400, detail="invalid signature")
 
     return {"status": handle_event(event, store)}
+
+
+@app.post("/issue")
+def issue(x_issue_token: str = Header(default="")):
+    """Called by an external scheduler every 3h; issues one batch of 8-12 invoices."""
+    if not settings.issue_token:
+        raise HTTPException(status_code=503, detail="issuing disabled: ISSUE_TOKEN not set")
+    if not secrets.compare_digest(x_issue_token, settings.issue_token):
+        raise HTTPException(status_code=403, detail="forbidden")
+    if settings.issue_until:
+        until = datetime.fromisoformat(settings.issue_until)
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > until:
+            logger.info("issue window closed at %s; skipping", settings.issue_until)
+            return {"status": "window-closed", "issued": 0}
+    invoices = issue_random_invoices()
+    return {"status": "ok", "issued": len(invoices)}
