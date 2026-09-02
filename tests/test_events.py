@@ -39,7 +39,9 @@ class TestPostgresEventStore:
     def store(self):
         store = PostgresEventStore(TEST_DATABASE_URL)
         yield store
-        store._conn().execute("DELETE FROM processed_events")
+        # Delete only rows created by these tests: the same database may hold
+        # real processed events (e.g. from the official 24h run).
+        store._conn().execute("DELETE FROM processed_events WHERE id LIKE 'evt-pg-%'")
 
     def test_mark_and_check(self, store):
         assert store.mark_processed("evt-pg-1") is True
