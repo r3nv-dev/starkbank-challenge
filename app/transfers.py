@@ -22,8 +22,11 @@ def net_amount(invoice) -> int:
 
 
 def _looks_like_duplicate_external_id(error: InputErrors) -> bool:
-    # The exact error code for a duplicated external_id is not publicly
-    # documented, so match defensively; confirmed against sandbox behavior.
+    # Defensive: in the sandbox a duplicate external_id is NOT rejected here —
+    # transfer.create returns 200 and the transfer fails asynchronously with
+    # "Duplicated transfer" (docs/starkbank-findings.md #4), so this branch does
+    # not fire there. Kept in case the API ever rejects duplicates synchronously
+    # with a structured InputErrors, as its docs imply.
     for item in getattr(error, "errors", []):
         code = str(getattr(item, "code", item)).lower()
         message = str(getattr(item, "message", "")).lower()

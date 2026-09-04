@@ -69,15 +69,87 @@ a `credited` **log**, not a status). `"registered"` belongs to Boleto, so this
 looks like a copy-paste leftover that can mislead integrators writing status
 filters (e.g. `invoice.query(status="registered")` never matches anything).
 
-## 4. Docs gap: the duplicated `external_id` error is undocumented
+## 4. API behavior: a duplicated `external_id` is NOT rejected at create time — it fails asynchronously
 
-The API docs state that "Duplicated external_ids will cause failures", but the
-error `code`/`message` returned in that case is not documented anywhere public.
-Integrators who rely on `external_id` for idempotency (as this project does —
-it is the hard guarantee against double payouts) have to guess which error
-means "this transfer already exists, treat it as success" versus a genuine
-failure that must propagate. Errors do arrive in a structured form
-(`{"code": ..., "message": ...}`, e.g. `invalidProject` for a bad project id),
-so documenting the specific code for duplicated `external_id`s would let
-clients ack retries precisely instead of matching defensively on the message
-text.
+This is the most important finding, and it contradicts the documentation. The
+docs say "Duplicated external_ids will cause failures", which every integrator
+reads as *synchronous rejection* — i.e. `transfer.create` raises so you can
+catch it and treat the retry as idempotent.
+
+Observed in the sandbox on 2026-09-04 (real transfer ids):
+`transfer.create([Transfer(external_id="invoice-5725166671757312", ...)])` for
+an `external_id` **already used** returned normally with HTTP 200 and a
+Transfer in status `created` (id `6514870478438400`) — **no exception**.
+Seconds later a `transfer.log` of type `failed` appeared carrying
+`errors: ["Duplicated transfer"]`, and the transfer settled as `failed`.
+
+Consequences for integrators:
+
+- The natural idempotency pattern — `try: transfer.create(...) except: # already
+  paid` — is dead code. There is no exception; the create looks successful.
+- To tell "already paid, safe to ack" from "must retry", you must poll
+  `transfer.log` for an async `failed` and then **string-match the English
+  prose** `"Duplicated transfer"` — there is no error `code`, no reference to
+  the original transfer, no `external_id` echoed back. The error is a bare
+  string in a list.
+- (`transfer.create` on genuinely bad input *does* raise synchronously with a
+  structured `{"code","message"}` — e.g. `invalidProject`. So the API is
+  inconsistent: some failures are synchronous+structured, the duplicate one is
+  asynchronous+free-text.)
+
+## 5. Sandbox: first-ever transfers to the challenge's own destination account failed as "Duplicated transfer"
+
+During the official run, the first (and only) transfer created for each of 9
+credited invoices — each with a unique `external_id`, to the challenge's
+mandated destination account (bank `20018183`, account `6341320293482496`) —
+**all** settled `failed` with `errors: ["Duplicated transfer"]`. Verified there
+was nothing to duplicate: `invoice.log.query(types=["credited"])` returned
+exactly 9 logs for 9 distinct invoices, and our handler issued exactly one
+transfer per invoice. So the message is simply wrong — nothing was duplicated.
+
+Recreating the same payout with a fresh `external_id` then surfaced a *different*
+async error on the same destination: `errors: ["Target account is blocked"]`,
+followed by a `refunded` log. In other words, the exact account every candidate
+is instructed to transfer to was, during the challenge window, async-rejecting
+first-time transfers behind a misleading error string — a failure entirely
+outside the integrator's code that only a reconcile/retry job survives.
+
+## 6. Code: `event.parse` verifies the signature over a re-serialized JSON fallback (parsing differential)
+
+In `starkcore/utils/parse.py`, `_is_signature_valid` first verifies the ECDSA
+signature against the **raw** body (correct). If that fails, it falls back to
+`Ecdsa.verify(dumps(loads(content), sort_keys=True), ...)` — i.e. it re-parses
+and re-serializes the JSON and accepts a signature valid over *that* normalized
+form. This means the signature does not authenticate the exact received bytes:
+a signature computed over a key-reordered / re-whitespaced encoding of the same
+JSON also passes. Since `parse_and_verify` then builds the event object with
+`loads(content, strict=False)` — which tolerates control characters and, per
+`json`, silently collapses duplicate keys (last value wins) — the bytes that
+were authenticated and the object the application acts on can diverge. Any
+integrator who assumes "the signature covers exactly these bytes" (e.g. hashing
+the raw body as an idempotency key) is mistaken.
+
+## 7. Code: webhook trust reduces to an unpinned TLS fetch cached in a process-global dict
+
+`_get_public_key` fetches Stark's signing key from `GET /public-key` and stores
+it in `cache = {}` (`starkcore/utils/cache.py`) — a plain module-global dict,
+no TTL, no signature over the cached key. The network layer (`request.py`)
+calls `requests` without `verify=`/certificate pinning, so it trusts any of the
+system's ~100 root CAs. The whole webhook trust chain therefore rests on that
+one unauthenticated fetch: whoever can answer for `sandbox.api.starkbank.com`
+during it (DNS cache poisoning, or a mis-issued/compromised CA cert) injects
+their own public key into the cache, after which forged webhook events signed
+with the attacker's key verify as genuine. The `refresh=True` retry path
+re-fetches on any verification failure, giving a second injection window on
+demand. Pinning the key (it ships in every SDK release anyway) would remove the
+network dependency from the trust decision entirely.
+
+## 8. Code: ECDSA `verify` accepts high-S signatures (malleability)
+
+`ellipticcurve/ecdsa.py` `verify` range-checks `1 <= s <= N-1` but does not
+enforce low-S (`s <= N/2`), while `sign` always produces low-S. So for any valid
+signature `(r, s)` the twin `(r, N-s)` also verifies, and `Signature.fromDer`'s
+canonical-DER check does not catch it (both are canonical). Harmless for a
+webhook that only asks "is this signed by Stark?", but a real bypass for any
+integrator who uses the signature bytes themselves as a dedup/idempotency key,
+since one authentic event then has two distinct valid signatures.

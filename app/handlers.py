@@ -12,10 +12,17 @@ def handle_event(event, store: EventStore) -> str:
 
     Only "credited" invoice logs trigger a transfer: "credited" is the moment
     the money lands in the account ("paid" precedes it) — reacting to both
-    would double-pay. The event is marked as processed only AFTER the transfer
-    succeeds, so a failure leaves it unmarked and Stark Bank's redelivery
-    retries it; a crash between transfer and mark cannot double-pay because
-    the Transfer external_id is rejected by the API on the second attempt.
+    would double-pay. The event is marked as processed only AFTER
+    transfer_invoice_credit returns, so a failure leaves it unmarked and Stark
+    Bank's redelivery retries it.
+
+    Double-payout safety comes from two layers: the local processed-events
+    store (primary), and Stark's own rejection of a reused Transfer external_id
+    (backstop, in case the store is lost). Note the backstop is ASYNCHRONOUS in
+    the sandbox: a duplicate external_id is accepted by transfer.create and only
+    later fails with "Duplicated transfer" (see docs/starkbank-findings.md #4),
+    so it prevents a second payout but does not raise here. Transfers that fail
+    asynchronously are recovered by the separate retry job (app/retry.py).
     """
     if event.subscription != "invoice" or getattr(event.log, "type", None) != "credited":
         logger.info("ignoring event id=%s subscription=%s type=%s",
