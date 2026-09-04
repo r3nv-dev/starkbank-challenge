@@ -135,8 +135,10 @@ PII-free logging.
 Captured from a live run against the Stark Bank sandbox (real ids; no PII, no
 credentials). The full event-driven loop is exercised end to end:
 
-- **Issued** 21 invoices to random people (batches of 8–12), of which the
-  sandbox auto-**paid 9**, producing **9 `invoice.credited` webhook events**.
+- Over the 24h run the service **issued invoices in batches of 8–12 every 3
+  hours** to random people; the sandbox auto-paid a large share of them, and
+  every payment produced an `invoice.credited` webhook. A representative
+  snapshot mid-run: **31 issued, 17 paid, 17 `credited` events processed**.
 - Every credited webhook was delivered to `POST /webhook`, its **ECDSA
   signature verified against the raw body**, and handled — invalid signatures
   are rejected with 400, `created`/`paid` logs ignored, only `credited` acted
