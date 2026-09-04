@@ -56,3 +56,14 @@ def test_invalid_signature_is_rejected(mock_parse):
     mock_parse.side_effect = starkbank.error.InvalidSignatureError("bad signature")
     response = client.post("/webhook", content=b"{}", headers=HEADERS)
     assert response.status_code == 400
+
+
+@patch("app.handlers.transfer_invoice_credit")
+@patch("app.webhook_app.starkbank.event.parse")
+def test_signature_is_verified_over_the_raw_request_body(mock_parse, mock_transfer):
+    # The signature must be checked against the exact bytes Stark Bank signed;
+    # re-serializing the JSON first would break verification. Pin that contract.
+    mock_parse.return_value = make_event(id="evt-raw")
+    raw = b'{"event": {"log": {"type": "credited"}}, "spaced": 1}'
+    client.post("/webhook", content=raw, headers={"Digital-Signature": "sig-abc"})
+    mock_parse.assert_called_once_with(content=raw.decode("utf-8"), signature="sig-abc")

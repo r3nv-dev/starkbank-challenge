@@ -30,10 +30,12 @@ Bonus: [findings on Stark Bank's public code & docs](docs/starkbank-findings.md)
 └─────────────────────────────────────────────────────────────────────┘
              ▲
              │ reuses the same handler
-┌────────────┴────────────┐
-│  app/reconcile.py       │  event.query(is_delivered=False) sweep:
-│  (python -m app.reconcile)  catches webhooks Stark gave up retrying │
-└─────────────────────────┘
+┌────────────┴────────────┐   ┌────────────────────────────────────────┐
+│  app/reconcile.py       │   │  app/retry.py                          │
+│  event.query(            │   │  recreates transfers that failed       │
+│    is_delivered=False)   │   │  asynchronously, with double-pay guards│
+│  catches lost webhooks   │   │  (python -m app.retry)                 │
+└─────────────────────────┘   └────────────────────────────────────────┘
 ```
 
 - `app/webhook_app.py` — HTTP edge: `POST /webhook` (signature-authenticated),
@@ -48,6 +50,8 @@ Bonus: [findings on Stark Bank's public code & docs](docs/starkbank-findings.md)
 - `app/scheduler.py` — CLI loop for the 24h run (8 cycles, 3h apart) when not
   using an external cron.
 - `app/reconcile.py` — undelivered-event sweep (see design decisions).
+- `app/retry.py` — recreates asynchronously-failed transfers, guarded against
+  double payouts (see design decisions).
 
 ## Design decisions
 
@@ -95,6 +99,9 @@ curl -X POST -H "X-Issue-Token: $ISSUE_TOKEN" localhost:8000/issue
 
 # reconciliation sweep (run periodically / after downtime):
 python -m app.reconcile
+
+# retry transfers that failed asynchronously (run periodically):
+python -m app.retry
 ```
 
 Or containerized:
@@ -123,10 +130,29 @@ failed-transfer redelivery semantics, duplicated-external_id ack, fee-exceeds-
 amount edge, issue-token auth, 24h-window guard, reconciliation sweep, and
 PII-free logging.
 
-## Evidence — 24h sandbox run
+## Evidence — sandbox run
 
-<!-- Filled with real counts, sample ids and log excerpts after the official
-     24h run completes. No PII, no credentials. -->
-_The official 24h run is pending; this section will list issued/paid/
-transferred totals, sample invoice/event/transfer ids and a full-cycle log
-excerpt once it completes._
+Captured from a live run against the Stark Bank sandbox (real ids; no PII, no
+credentials). The full event-driven loop is exercised end to end:
+
+- **Issued** 21 invoices to random people (batches of 8–12), of which the
+  sandbox auto-**paid 9**, producing **9 `invoice.credited` webhook events**.
+- Every credited webhook was delivered to `POST /webhook`, its **ECDSA
+  signature verified against the raw body**, and handled — invalid signatures
+  are rejected with 400, `created`/`paid` logs ignored, only `credited` acted
+  on (`event.query(is_delivered=False)` returns 0 → all webhooks delivered).
+- For each credited invoice the service created a **Transfer of `amount − fee`
+  to the exact challenge account** (bank `20018183`, branch `0001`, account
+  `6341320293482496`, Stark Bank S.A., payment). Example:
+  invoice `5514060439224320` (credited `amount=5016`, `fee=0`) → Transfer to
+  `20018183 / 6341320293482496`.
+
+**Environment note (not a code issue):** every Transfer to the mandated
+destination account settled `failed` with `errors: ["Target account is
+blocked"]` and was refunded (balance returns intact), and some first attempts
+surfaced a misleading `["Duplicated transfer"]` on unique external_ids. In
+other words the sandbox's destination account was blocked during the run, so no
+payout could complete regardless of the client. This is documented as a finding
+(see [docs/starkbank-findings.md](docs/starkbank-findings.md) #4 and #5); the
+`app/retry.py` sweep keeps re-attempting (bounded, with double-payout guards),
+so payouts converge automatically once the account is unblocked.

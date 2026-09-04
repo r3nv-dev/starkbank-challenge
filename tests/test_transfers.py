@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 from starkbank.error import InputErrors
 
-from app.transfers import DESTINATION, net_amount, transfer_invoice_credit
+from app.transfers import net_amount, transfer_invoice_credit
 
 
 def make_invoice(amount=10_000, fee=118, id="123"):
@@ -18,12 +18,16 @@ def test_transfer_deducts_fee(mock_create):
 
 
 @patch("app.transfers.starkbank.transfer.create", side_effect=lambda batch: batch)
-def test_transfer_targets_starkbank_account(mock_create):
+def test_transfer_targets_the_exact_challenge_account(mock_create):
+    # Asserts against the literal values from the challenge spec (not against
+    # the DESTINATION dict itself) so an accidental edit to any field fails here.
     transfer = transfer_invoice_credit(make_invoice())
-    assert transfer.bank_code == DESTINATION["bank_code"]
-    assert transfer.account_number == DESTINATION["account_number"]
-    assert transfer.tax_id == DESTINATION["tax_id"]
-    assert transfer.account_type == DESTINATION["account_type"]
+    assert transfer.bank_code == "20018183"
+    assert transfer.branch_code == "0001"
+    assert transfer.account_number == "6341320293482496"
+    assert transfer.name == "Stark Bank S.A."
+    assert transfer.tax_id == "20.018.183/0001-80"
+    assert transfer.account_type == "payment"
 
 
 @patch("app.transfers.starkbank.transfer.create", side_effect=lambda batch: batch)

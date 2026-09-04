@@ -1,9 +1,10 @@
 # Findings on Stark Bank public code & docs
 
 Reported in the spirit of the challenge's bonus ("find issues on our public
-code or API"). All items were re-verified on **2026-09-01** against the
-versions listed below — nothing here is copied from old reports without
-checking the current state.
+code or API"). Items #1–#3 were verified on **2026-09-01** and items #4–#8 on **2026-09-04**
+(the latter observed live during the sandbox run), against the versions listed
+below — nothing here is copied from old reports without checking the current
+state.
 
 Verified versions: `starkbank` 2.35.0 · `starkcore` 0.7.0 · `starkbank-ecdsa` 2.3.1.
 
